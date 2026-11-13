@@ -37,6 +37,21 @@ app/src/main/assets/songs/
 - `*.mp3` 與 `*.lrc` 都列在 `.gitignore`（歌詞也有版權），只有自編的 `sample*.lrc` 進版控
 - 加歌後要重新編譯、重新安裝
 
+### 用腳本加歌（從 Argus 點唱機快取）
+
+[tools/add_song.py](tools/add_song.py) 會從 Argus 快取下載 mp3、到 LRCLIB 找同步歌詞，挑長度最接近 mp3 的那份。長度差超過 2 秒就不寫檔，只列出候選，因為 MV 版常比錄音室版多前奏，歌詞會整首偏掉。
+
+```bash
+echo "ARGUS_URL=http://<argus 主機>:<埠>" > tools/local.env   # 只放本機，不進版控
+python -X utf8 tools/add_song.py "Queencard" --artist "(G)I-DLE" --track "Queencard"
+#   --lrclib <id>    指定某份歌詞
+#   --offset <毫秒>  寫入 [offset:]（正值＝提早）
+#   --force          長度差超過門檻也照寫
+./gradlew installDebug
+```
+
+歌單建議控制在 30 首內（約 250 MB）。歌是打包進 APK 的，再多每次重裝都會很慢；要更多首就得改成讀手機資料夾。
+
 ### 沒有歌也能測：產生測試音檔
 
 附的兩份 LRC（`sample.lrc`、`sample2.lrc`）可以搭配 ffmpeg 產生的嗶聲音檔。嗶聲落在換句的時間點，聽得出歌詞同步準不準：

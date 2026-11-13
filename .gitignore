@@ -12,3 +12,6 @@ app/src/main/assets/songs/*.mp3
 # 歌詞也有版權：只有自編的範例進版控
 app/src/main/assets/songs/*.lrc
 !app/src/main/assets/songs/sample*.lrc
+
+# 本機設定（Argus 內網網址）
+tools/local.env
