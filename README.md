@@ -1,6 +1,6 @@
 # auto-karaoke：Android Auto 卡拉 OK（POC）
 
-在 Android Auto 的「正在播放」畫面上即時顯示歌詞：**標題＝目前這句、副標題＝下一句、演出者＝歌名**。
+在 Android Auto 的「正在播放」畫面上即時顯示歌詞：**標題＝目前這句、副標題＝下一句**，歌名與歌手印在右邊的封面上。播放畫面右下角的字幕按鈕可以關掉歌詞，當一般音樂播放器用。
 只供個人側載使用，不上架。手機端沒有任何畫面（No Activity），全部從 Android Auto 操作。
 
 > ⚠️ 開車時請勿閱讀歌詞。這是給停車、副駕或 DHU 模擬器測試用的。
@@ -11,6 +11,7 @@
 |---|---|
 | [LrcParser.kt](app/src/main/java/com/joechiboo/autokaraoke/LrcParser.kt) | 純 Kotlin 的 LRC 解析：`[mm:ss]`／`.x`／`.xx`／`.xxx`、一行多個時間標籤、`[ti:]` `[ar:]` `[offset:]` |
 | [LyricSyncer.kt](app/src/main/java/com/joechiboo/autokaraoke/LyricSyncer.kt) | 播放中每 200ms 依位置二分搜尋目前句；句子換了才回呼，拖曳後可 `syncNow()` 立即同步 |
+| [ArtworkFactory.kt](app/src/main/java/com/joechiboo/autokaraoke/ArtworkFactory.kt) | 產生印著歌名＋歌手的封面（有副標題時 Auto 不顯示演出者，歌名只能放封面） |
 | [SongLibrary.kt](app/src/main/java/com/joechiboo/autokaraoke/SongLibrary.kt) | 掃描 `assets/songs/`，建歌曲清單與 Android Auto 瀏覽樹 |
 | [KaraokeService.kt](app/src/main/java/com/joechiboo/autokaraoke/KaraokeService.kt) | `MediaLibraryService` 主體：ExoPlayer、瀏覽樹 callback、把歌詞寫進 MediaMetadata |
 
@@ -33,7 +34,7 @@ app/src/main/assets/songs/
 - 有 mp3 才會出現在清單；沒有 .lrc 就只播歌、不顯示歌詞
 - 清單上的歌名取自 LRC 的 `[ti:]`，沒有就用檔名
 - LRC 請存成 **UTF-8**
-- `*.mp3` 已列在 `.gitignore`，不會被推上 GitHub
+- `*.mp3` 與 `*.lrc` 都列在 `.gitignore`（歌詞也有版權），只有自編的 `sample*.lrc` 進版控
 - 加歌後要重新編譯、重新安裝
 
 ### 沒有歌也能測：產生測試音檔
@@ -92,7 +93,7 @@ Android Auto 預設只顯示從 Play 商店安裝的媒體 App，側載的要先
    - Android 10 以上內建在系統裡：**設定 → 已連結的裝置 → 連線偏好設定 → Android Auto**（三星：**設定 → 已連接的裝置 → Android Auto**；找不到就在設定裡搜尋「Android Auto」）
 2. 捲到最下面，**連點「版本」約 10 下**，出現對話框按確定，就開啟了開發人員設定
 3. 右上角 ⋮ → **開發人員設定**
-4. 勾選 **「未知來源」（Unknown sources）**
+4. 勾選 **「不明的來源」**（英文介面叫 Unknown sources）
 5. 回到 Android Auto 設定 → **自訂啟動器**（Customize launcher），確認「車上卡拉OK」有勾選
 
 ## 用 DHU 在電腦上測試
@@ -113,7 +114,9 @@ curl -Lo dhu.zip https://dl.google.com/android/repository/desktop-head-unit-wind
 
 ### 2. 手機啟動 head unit server
 
-Android Auto 設定 → ⋮ → **啟動車用運算主機伺服器**（Start head unit server）。通知列會出現「車用運算主機伺服器執行中」。
+Android Auto 設定 → ⋮ → **啟動資訊娛樂主機伺服器**（英文介面叫 Start head unit server）。
+
+確認有開：`adb shell "ss -ltn | grep 5277"` 要看到 `LISTEN`。DHU 顯示「connected」不算數，那只代表連到電腦端的 adb 轉發。
 
 ### 3. 轉發連接埠並啟動 DHU
 
@@ -136,12 +139,17 @@ DHU 視窗開起來後，點左下角的應用程式格 → **車上卡拉OK** �
 | 拖曳進度 | 放開後歌詞立即跳到對應的句子（不用等 200ms） |
 | 上一首／下一首 | 切到清單中前後一首，歌詞跟著換 |
 | 暫停 | 停在目前這句；繼續播放後接著同步 |
+| 字幕按鈕（右下角） | 關：標題／副標題換回歌名／歌手；開：立即回到目前這句。開關狀態會記住 |
+| 封面 | 每首歌一張色卡，印歌名＋歌手 |
 
 DHU 常用操作：`dayNight` 切換日夜模式、視窗大小可在 DHU 設定檔調整。
 
 ## 疑難排解
 
-- **Android Auto 裡看不到 App**：確認「未知來源」已勾、自訂啟動器有勾選；裝完 App 後把 Android Auto（或 DHU）完全關掉重開
+- **DHU 一直停在 Waiting for phone**：手機上的資訊娛樂主機伺服器沒開，見上面的確認方式
+- **DHU 開了馬上自己關掉**：它會讀主控台輸入，從背景執行時讀到檔尾就結束；要在自己的視窗裡開（直接點 exe，或 PowerShell `Start-Process`）
+- **按了字幕按鈕畫面沒變**：Auto 的畫面有時會晚一兩秒才更新
+- **Android Auto 裡看不到 App**：確認「不明的來源」已勾、自訂啟動器有勾選；裝完 App 後把 Android Auto（或 DHU）完全關掉重開
 - **看 log**：`adb logcat | grep -iE "karaoke|MediaSession|ExoPlayer"`
 - **確認 Session 有在跑**：播放時 `adb shell dumpsys media_session`，應該看到 `com.joechiboo.autokaraoke` 與目前的 metadata
 - **歌詞亂碼**：LRC 不是 UTF-8，用編輯器另存成 UTF-8

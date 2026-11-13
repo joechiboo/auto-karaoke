@@ -76,6 +76,7 @@ class SongLibrary(assets: AssetManager) {
                     .setDisplayTitle(title)
                     .setArtist(artist)
                     .setSubtitle(artist)
+                    .setArtworkData(ArtworkFactory.create(title, artist), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)

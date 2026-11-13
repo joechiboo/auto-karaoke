@@ -47,6 +47,12 @@ class LyricSyncer(
         handler.removeCallbacks(tick)
     }
 
+    /** 不管句子有沒有變，都依目前位置重送一次（例如字幕剛打開）。 */
+    fun forceSync() {
+        lastIndex = UNSET
+        syncNow()
+    }
+
     /** 立即依目前位置同步；句子沒變就什麼都不做。 */
     fun syncNow() {
         if (lines.isEmpty()) return
