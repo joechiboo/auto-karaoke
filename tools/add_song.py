@@ -95,6 +95,9 @@ def main():
     base_url = argus_url()
     cache = get_json(f"{base_url}/api/music/cache")["tracks"]
     hits = [c for c in cache if a.keyword.lower() in (c.get("title") or "").lower()]
+    exact = [c for c in hits if (c.get("title") or "").strip().lower() == a.keyword.strip().lower()]
+    if len(exact) == 1:  # 標題跟關鍵字一字不差的優先（例如快取裡同時有「紅色高跟鞋」和「蔡健雅 - 紅色高跟鞋」）
+        hits = exact
     if not hits:
         sys.exit(f"Argus 快取裡找不到「{a.keyword}」")
     if len(hits) > 1:
