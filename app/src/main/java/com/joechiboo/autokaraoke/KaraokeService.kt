@@ -1,6 +1,9 @@
 package com.joechiboo.autokaraoke
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -53,17 +56,22 @@ class KaraokeService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        syncer = LyricSyncer(positionMs = { player.currentPosition }, onChange = ::showLyric)
+        // 校正值加在播放位置上：+500 代表歌詞提早半秒出現
+        syncer = LyricSyncer(
+            positionMs = { player.currentPosition + offsetMs(player.currentMediaItem?.mediaId) },
+            onChange = ::showLyric,
+        )
         player.addListener(PlayerListener())
 
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
-            .setMediaButtonPreferences(ImmutableList.of(lyricsButton()))
+            .setMediaButtonPreferences(buttons())
             .build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         syncer.stop()
         session.release()
         player.release()
@@ -95,6 +103,7 @@ class KaraokeService : MediaLibraryService() {
             else -> current.text
         }
         val subtitle = when {
+            SystemClock.elapsedRealtime() < noticeUntil -> noticeText  // 剛按了校正鈕，顯示目前校正值
             next == null -> ""
             next.text.isBlank() -> "♪"
             else -> next.text
@@ -117,15 +126,30 @@ class KaraokeService : MediaLibraryService() {
         get() = prefs.getBoolean(KEY_LYRICS_ON, true)
         set(value) = prefs.edit().putBoolean(KEY_LYRICS_ON, value).apply()
 
-    private fun lyricsButton(): CommandButton =
-        CommandButton.Builder(if (lyricsOn) CommandButton.ICON_SUBTITLES else CommandButton.ICON_SUBTITLES_OFF)
+    /** 播放畫面上的自訂按鈕：字幕開時有「延後／提早」兩顆校正鈕，字幕關時只剩開關。 */
+    private fun buttons(): ImmutableList<CommandButton> {
+        val toggle = CommandButton.Builder(
+            if (lyricsOn) CommandButton.ICON_SUBTITLES else CommandButton.ICON_SUBTITLES_OFF
+        )
             .setDisplayName(if (lyricsOn) "關閉字幕" else "開啟字幕")
             .setSessionCommand(TOGGLE_LYRICS)
             .build()
+        if (!lyricsOn) return ImmutableList.of(toggle)
+
+        val later = CommandButton.Builder(CommandButton.ICON_MINUS)
+            .setDisplayName("字幕延後 0.5 秒")
+            .setSessionCommand(LYRICS_LATER)
+            .build()
+        val earlier = CommandButton.Builder(CommandButton.ICON_PLUS)
+            .setDisplayName("字幕提早 0.5 秒")
+            .setSessionCommand(LYRICS_EARLIER)
+            .build()
+        return ImmutableList.of(later, earlier, toggle)
+    }
 
     private fun toggleLyrics() {
         lyricsOn = !lyricsOn
-        session.setMediaButtonPreferences(ImmutableList.of(lyricsButton()))
+        session.setMediaButtonPreferences(buttons())
         if (lyricsOn) {
             syncer.forceSync()
         } else {
@@ -134,6 +158,35 @@ class KaraokeService : MediaLibraryService() {
             player.replaceMediaItem(player.currentMediaItemIndex, song.mediaItem)
         }
     }
+
+    // ---- 字幕時間校正（每首歌各自記住） ----
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var noticeText = ""
+    private var noticeUntil = 0L
+
+    private fun offsetMs(songId: String?): Long =
+        songId?.let { prefs.getLong(KEY_OFFSET_PREFIX + it, 0L) } ?: 0L
+
+    private fun adjustOffset(deltaMs: Long) {
+        val id = player.currentMediaItem?.mediaId ?: return
+        val value = (offsetMs(id) + deltaMs).coerceIn(-MAX_OFFSET_MS, MAX_OFFSET_MS)
+        prefs.edit().putLong(KEY_OFFSET_PREFIX + id, value).apply()
+
+        noticeText = when {
+            value > 0 -> "字幕提早 %.1f 秒".format(value / 1000.0)
+            value < 0 -> "字幕延後 %.1f 秒".format(-value / 1000.0)
+            else -> "字幕時間已歸零"
+        }
+        noticeUntil = SystemClock.elapsedRealtime() + NOTICE_MS
+        syncer.forceSync()
+
+        // 提示時間到就換回下一句歌詞；連按時只留最後一次的
+        handler.removeCallbacks(clearNotice)
+        handler.postDelayed(clearNotice, NOTICE_MS)
+    }
+
+    private val clearNotice = Runnable { syncer.forceSync() }
 
     private inner class PlayerListener : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = refreshLyrics()
@@ -165,9 +218,11 @@ class KaraokeService : MediaLibraryService() {
                 .setAvailableSessionCommands(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                         .add(TOGGLE_LYRICS)
+                        .add(LYRICS_EARLIER)
+                        .add(LYRICS_LATER)
                         .build()
                 )
-                .setMediaButtonPreferences(ImmutableList.of(lyricsButton()))
+                .setMediaButtonPreferences(buttons())
                 .build()
 
         override fun onCustomCommand(
@@ -176,11 +231,13 @@ class KaraokeService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
-            if (customCommand.customAction == TOGGLE_LYRICS.customAction) {
-                toggleLyrics()
-                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            when (customCommand.customAction) {
+                TOGGLE_LYRICS.customAction -> toggleLyrics()
+                LYRICS_EARLIER.customAction -> adjustOffset(+OFFSET_STEP_MS)
+                LYRICS_LATER.customAction -> adjustOffset(-OFFSET_STEP_MS)
+                else -> return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
-            return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
 
         override fun onGetLibraryRoot(
@@ -275,6 +332,12 @@ class KaraokeService : MediaLibraryService() {
 
     companion object {
         val TOGGLE_LYRICS = SessionCommand("com.joechiboo.autokaraoke.TOGGLE_LYRICS", Bundle.EMPTY)
+        val LYRICS_EARLIER = SessionCommand("com.joechiboo.autokaraoke.LYRICS_EARLIER", Bundle.EMPTY)
+        val LYRICS_LATER = SessionCommand("com.joechiboo.autokaraoke.LYRICS_LATER", Bundle.EMPTY)
         private const val KEY_LYRICS_ON = "lyrics_on"
+        private const val KEY_OFFSET_PREFIX = "offset_"
+        private const val OFFSET_STEP_MS = 500L
+        private const val MAX_OFFSET_MS = 30_000L
+        private const val NOTICE_MS = 2_000L
     }
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 麥克風頭 -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M43,38 a8,8 0 0 1 16,0 v8 a8,8 0 0 1 -16,0 z" />
+    <!-- 網罩紋 -->
+    <path android:strokeColor="#FF6D28D9" android:strokeWidth="1.6" android:strokeLineCap="round"
+        android:pathData="M45,39 H57 M45,44 H57" />
+    <!-- 托架、桿、底座 -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4" android:strokeLineCap="round"
+        android:pathData="M38,46 a13,13 0 0 0 26,0 M51,59 V70 M44,70 H58" />
+    <!-- 音符 -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M63,40 a4,4 0 1 0 8,0 a4,4 0 1 0 -8,0 z" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineCap="round"
+        android:strokeLineJoin="round" android:pathData="M70,40 V27 q6,1 6,8" />
+</vector>
