@@ -36,6 +36,18 @@ app/src/main/assets/songs/
 - `*.mp3` 已列在 `.gitignore`，不會被推上 GitHub
 - 加歌後要重新編譯、重新安裝
 
+### 沒有歌也能測：產生測試音檔
+
+附的兩份 LRC（`sample.lrc`、`sample2.lrc`）可以搭配 ffmpeg 產生的嗶聲音檔。嗶聲落在換句的時間點，聽得出歌詞同步準不準：
+
+```bash
+cd app/src/main/assets/songs
+# sample：72 秒，每 4 秒嗶一聲（對齊 sample.lrc）
+ffmpeg -f lavfi -i "aevalsrc='0.35*sin(2*PI*880*t)*lt(mod(t\,4)\,0.12)+0.12*sin(2*PI*(220+15*floor(t/4))*t)':s=44100:d=72" -ac 1 -b:a 96k sample.mp3
+# sample2：30 秒，每 3 秒嗶一聲
+ffmpeg -f lavfi -i "aevalsrc='0.35*sin(2*PI*660*t)*lt(mod(t\,3)\,0.12)+0.12*sin(2*PI*(330+20*floor(t/3))*t)':s=44100:d=30" -ac 1 -b:a 96k sample2.mp3
+```
+
 ## 編譯
 
 需要 JDK 17 以上；PATH 上的 java 太舊的話，指到 Android Studio 內附的 JBR：
@@ -45,7 +57,12 @@ app/src/main/assets/songs/
 export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
 ./gradlew testDebugUnitTest   # 單元測試（LrcParser、LyricSyncer）
 ./gradlew assembleDebug       # 產出 app/build/outputs/apk/debug/app-debug.apk
+./gradlew connectedDebugAndroidTest   # 實機端對端測試（要接手機、要有上面兩個測試音檔）
 ```
+
+實機測試（[KaraokeServiceTest.kt](app/src/androidTest/java/com/joechiboo/autokaraoke/KaraokeServiceTest.kt)）會直接連到 KaraokeService，依序檢查瀏覽樹、前奏、自然換句、拖曳、間奏、一行多個時間標籤、暫停、上一首／下一首。另外會用 Android Auto 走的舊版 `MediaBrowserService` 介面，確認 `DISPLAY_TITLE`／`DISPLAY_SUBTITLE` 有正確送出。測試期間手機喇叭會發出嗶聲。
+
+> 不要用 `adb shell cmd media_session dispatch play` 來測：系統會把媒體鍵派給最後播放的 App（通常是 YouTube／YouTube Music），不是這支。
 
 `local.properties` 不在版控內，clone 下來第一次編譯前要建一個：
 
@@ -87,7 +104,12 @@ DHU（Desktop Head Unit）是在電腦上模擬車機螢幕的工具，不用上
 Android Studio → **Tools → SDK Manager → SDK Tools** 分頁 → 勾 **Android Auto Desktop Head Unit Emulator** → Apply。
 裝好後在 `%LOCALAPPDATA%\Android\Sdk\extras\google\auto\desktop-head-unit.exe`。
 
-（這台電腦目前還沒裝。）
+SDK Manager 跑不動的話（例如 cmdline-tools 沒裝完整），也可以直接下載解壓縮：
+
+```bash
+D="$LOCALAPPDATA/Android/Sdk/extras/google/auto"; mkdir -p "$D" && cd "$D"
+curl -Lo dhu.zip https://dl.google.com/android/repository/desktop-head-unit-windows-x64_r02.1.zip && unzip -o dhu.zip && rm dhu.zip
+```
 
 ### 2. 手機啟動 head unit server
 
