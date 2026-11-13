@@ -1,0 +1,11 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+captures/
+.DS_Store
+
+# 歌曲檔自己放，不進版控（避免版權問題）；.lrc 範例要進版控
+app/src/main/assets/songs/*.mp3
