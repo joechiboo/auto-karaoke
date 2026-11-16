@@ -8,7 +8,8 @@
     --artist / --track：查 LRCLIB 用的歌手與歌名，也是檔名「歌手 - 歌名」
     --lrclib <id>：指定用哪一份歌詞（看完候選清單後再跑一次）
     --offset <毫秒>：寫進 LRC 的 [offset:]，正值＝歌詞提早
-    --force：長度差超過門檻也照寫
+    --force：長度差超過門檻也照寫（例如多出來的是 MV 片尾劇情，不影響同步）
+    --playlist <名稱>：放進另一份歌單（assets/songs/<名稱>/，例如「小孩」）；不給就是主歌單
 
 判斷規則：
 - LRCLIB 每份歌詞附歌曲長度。跟 mp3 長度差 <= 2 秒才自動採用，否則只列候選。
@@ -90,6 +91,7 @@ def main():
     ap.add_argument("--lrclib", type=int)
     ap.add_argument("--offset", type=int, default=0)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--playlist")
     a = ap.parse_args()
 
     base_url = argus_url()
@@ -135,16 +137,17 @@ def main():
                  f"\n可能是 MV 版多了前奏；用 --lrclib 指定一份、--offset 補差距，或 --force 照寫。")
 
     name = re.sub(r'[\\/:*?"<>|]', "_", f"{a.artist} - {a.track}")
-    SONGS.mkdir(parents=True, exist_ok=True)
-    mp3 = SONGS / f"{name}.mp3"
+    dest = SONGS / a.playlist if a.playlist else SONGS
+    dest.mkdir(parents=True, exist_ok=True)
+    mp3 = dest / f"{name}.mp3"
     if not mp3.exists():
         urllib.request.urlretrieve(audio_url, mp3)
     body = "\n".join(l for l in chosen["syncedLyrics"].splitlines() if not re.match(r"^\[(ti|ar|offset):", l, re.I))
     header = f'[ti:{a.track}]\n[ar:{a.artist}]\n[by:lrclib #{chosen["id"]}]\n'
     if a.offset:
         header += f"[offset:{a.offset}]\n"
-    (SONGS / f"{name}.lrc").write_text(header + body + "\n", encoding="utf-8")
-    print(f"\n已寫入 {name}.mp3 / .lrc（長度差 {diff:+.1f}s）。重新編譯安裝：./gradlew installDebug")
+    (dest / f"{name}.lrc").write_text(header + body + "\n", encoding="utf-8")
+    print(f"\n已寫入 {dest.relative_to(SONGS.parent).as_posix()}/{name}.mp3 / .lrc（長度差 {diff:+.1f}s）。重新編譯安裝：./gradlew installDebug")
 
 
 if __name__ == "__main__":

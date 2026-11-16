@@ -30,6 +30,7 @@ import com.google.common.util.concurrent.ListenableFuture
  *
  * 有副標題時 Android Auto 不顯示 artist，所以歌名與歌手印在封面上（見 [ArtworkFactory]）。
  * 播放畫面右下角的字幕按鈕可以關掉歌詞，關掉時標題／副標題換回歌名／歌手。
+ * 預設整份歌單循環播放，循環按鈕可以關掉（播完最後一首就停）。
  */
 class KaraokeService : MediaLibraryService() {
 
@@ -55,6 +56,7 @@ class KaraokeService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        player.repeatMode = if (repeatOn) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
 
         // 校正值加在播放位置上：+500 代表歌詞提早半秒出現
         syncer = LyricSyncer(
@@ -126,7 +128,15 @@ class KaraokeService : MediaLibraryService() {
         get() = prefs.getBoolean(KEY_LYRICS_ON, true)
         set(value) = prefs.edit().putBoolean(KEY_LYRICS_ON, value).apply()
 
-    /** 播放畫面上的自訂按鈕：字幕開時有「延後／提早」兩顆校正鈕，字幕關時只剩開關。 */
+    /** 循環播放（整份歌單）；預設開。 */
+    private var repeatOn: Boolean
+        get() = prefs.getBoolean(KEY_REPEAT_ON, true)
+        set(value) = prefs.edit().putBoolean(KEY_REPEAT_ON, value).apply()
+
+    /**
+     * 播放畫面上的自訂按鈕：字幕開時有「延後／提早」兩顆校正鈕＋字幕開關＋循環開關，
+     * 字幕關時只剩兩個開關。
+     */
     private fun buttons(): ImmutableList<CommandButton> {
         val toggle = CommandButton.Builder(
             if (lyricsOn) CommandButton.ICON_SUBTITLES else CommandButton.ICON_SUBTITLES_OFF
@@ -134,7 +144,13 @@ class KaraokeService : MediaLibraryService() {
             .setDisplayName(if (lyricsOn) "關閉字幕" else "開啟字幕")
             .setSessionCommand(TOGGLE_LYRICS)
             .build()
-        if (!lyricsOn) return ImmutableList.of(toggle)
+        val repeat = CommandButton.Builder(
+            if (repeatOn) CommandButton.ICON_REPEAT_ALL else CommandButton.ICON_REPEAT_OFF
+        )
+            .setDisplayName(if (repeatOn) "關閉循環播放" else "開啟循環播放")
+            .setSessionCommand(TOGGLE_REPEAT)
+            .build()
+        if (!lyricsOn) return ImmutableList.of(toggle, repeat)
 
         val later = CommandButton.Builder(CommandButton.ICON_MINUS)
             .setDisplayName("字幕延後 0.5 秒")
@@ -144,7 +160,12 @@ class KaraokeService : MediaLibraryService() {
             .setDisplayName("字幕提早 0.5 秒")
             .setSessionCommand(LYRICS_EARLIER)
             .build()
-        return ImmutableList.of(later, earlier, toggle)
+        return ImmutableList.of(later, earlier, toggle, repeat)
+    }
+
+    private fun toggleRepeat() {
+        // 存檔與更新按鈕交給 onRepeatModeChanged，別的控制端改循環模式時也會走同一條路
+        player.repeatMode = if (repeatOn) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ALL
     }
 
     private fun toggleLyrics() {
@@ -200,6 +221,11 @@ class KaraokeService : MediaLibraryService() {
             reason: Int,
         ) = refreshLyrics()
 
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            repeatOn = repeatMode != Player.REPEAT_MODE_OFF
+            session.setMediaButtonPreferences(buttons())
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) syncer.start() else syncer.stop()
             refreshLyrics()
@@ -220,6 +246,7 @@ class KaraokeService : MediaLibraryService() {
                         .add(TOGGLE_LYRICS)
                         .add(LYRICS_EARLIER)
                         .add(LYRICS_LATER)
+                        .add(TOGGLE_REPEAT)
                         .build()
                 )
                 .setMediaButtonPreferences(buttons())
@@ -235,6 +262,7 @@ class KaraokeService : MediaLibraryService() {
                 TOGGLE_LYRICS.customAction -> toggleLyrics()
                 LYRICS_EARLIER.customAction -> adjustOffset(+OFFSET_STEP_MS)
                 LYRICS_LATER.customAction -> adjustOffset(-OFFSET_STEP_MS)
+                TOGGLE_REPEAT.customAction -> toggleRepeat()
                 else -> return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -256,9 +284,11 @@ class KaraokeService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val children: List<MediaItem> = when (parentId) {
-                SongLibrary.ROOT_ID -> listOf(library.songsFolder)
-                SongLibrary.SONGS_ID -> library.songItems.ifEmpty { listOf(library.emptyHint) }
-                else -> return Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
+                // 每份歌單是一個資料夾，Android Auto 顯示成上方分頁
+                SongLibrary.ROOT_ID -> library.playlists.map { it.folder }
+                SongLibrary.SONGS_ID -> library.main.items.ifEmpty { listOf(library.emptyHint) }
+                else -> library.playlist(parentId)?.items
+                    ?: return Futures.immediateFuture(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
             }
             val paged = if (pageSize in 1 until Int.MAX_VALUE) {
                 children.drop(page * pageSize).take(pageSize)
@@ -275,8 +305,7 @@ class KaraokeService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<MediaItem>> {
             val item = when (mediaId) {
                 SongLibrary.ROOT_ID -> library.rootItem
-                SongLibrary.SONGS_ID -> library.songsFolder
-                else -> library.find(mediaId)?.mediaItem
+                else -> library.playlist(mediaId)?.folder ?: library.find(mediaId)?.mediaItem
             }
             return Futures.immediateFuture(
                 if (item != null) LibraryResult.ofItem(item, null)
@@ -295,8 +324,8 @@ class KaraokeService : MediaLibraryService() {
             )
 
         /**
-         * 在列表點一首歌時，把「整份歌單」放進播放清單並從那首開始，
-         * 這樣上一首／下一首才有東西可以切。
+         * 在列表點一首歌時，把「那首歌所在的整份歌單」放進播放清單並從那首開始，
+         * 這樣上一首／下一首才有東西可以切，循環也只在這份歌單裡轉。
          */
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -306,10 +335,12 @@ class KaraokeService : MediaLibraryService() {
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             if (mediaItems.size == 1) {
-                val index = library.indexOf(mediaItems[0].mediaId)
-                if (index >= 0) {
+                val id = mediaItems[0].mediaId
+                val playlist = library.playlistOf(id)
+                if (playlist != null) {
+                    val index = playlist.songs.indexOfFirst { it.id == id }
                     return Futures.immediateFuture(
-                        MediaSession.MediaItemsWithStartPosition(library.songItems, index, startPositionMs)
+                        MediaSession.MediaItemsWithStartPosition(playlist.items, index, startPositionMs)
                     )
                 }
             }
@@ -319,14 +350,14 @@ class KaraokeService : MediaLibraryService() {
             )
         }
 
-        /** 冷啟動時直接按播放（例如上車後 Auto 的播放鍵）：從第一首開始。 */
+        /** 冷啟動時直接按播放（例如上車後 Auto 的播放鍵）：從主歌單第一首開始。 */
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
             Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(library.songItems, 0, C.TIME_UNSET)
+                MediaSession.MediaItemsWithStartPosition(library.main.items, 0, C.TIME_UNSET)
             )
     }
 
@@ -334,7 +365,9 @@ class KaraokeService : MediaLibraryService() {
         val TOGGLE_LYRICS = SessionCommand("com.joechiboo.autokaraoke.TOGGLE_LYRICS", Bundle.EMPTY)
         val LYRICS_EARLIER = SessionCommand("com.joechiboo.autokaraoke.LYRICS_EARLIER", Bundle.EMPTY)
         val LYRICS_LATER = SessionCommand("com.joechiboo.autokaraoke.LYRICS_LATER", Bundle.EMPTY)
+        val TOGGLE_REPEAT = SessionCommand("com.joechiboo.autokaraoke.TOGGLE_REPEAT", Bundle.EMPTY)
         private const val KEY_LYRICS_ON = "lyrics_on"
+        private const val KEY_REPEAT_ON = "repeat_on"
         private const val KEY_OFFSET_PREFIX = "offset_"
         private const val OFFSET_STEP_MS = 500L
         private const val MAX_OFFSET_MS = 30_000L

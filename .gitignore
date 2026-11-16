@@ -7,10 +7,10 @@ local.properties
 captures/
 .DS_Store
 
-# 歌曲檔自己放，不進版控（避免版權問題）；.lrc 範例要進版控
-app/src/main/assets/songs/*.mp3
+# 歌曲檔自己放，不進版控（避免版權問題）；含子資料夾歌單（songs/<歌單>/）
+app/src/main/assets/songs/**/*.mp3
 # 歌詞也有版權：只有自編的範例進版控
-app/src/main/assets/songs/*.lrc
+app/src/main/assets/songs/**/*.lrc
 !app/src/main/assets/songs/sample*.lrc
 
 # 本機設定（Argus 內網網址）
