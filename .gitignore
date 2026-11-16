@@ -13,5 +13,5 @@ app/src/main/assets/songs/**/*.mp3
 app/src/main/assets/songs/**/*.lrc
 !app/src/main/assets/songs/sample*.lrc
 
-# 本機設定（Argus 內網網址）
+# 本機設定（mp3 來源網址）
 tools/local.env

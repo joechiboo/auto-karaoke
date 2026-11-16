@@ -46,16 +46,15 @@ app/src/main/assets/songs/
 
 加一首歌要滿足兩個條件：
 
-1. **Argus 點唱機的快取裡有這首**：在監控牆點過的 YouTube 歌，伺服器會轉成 mp3 存進快取。所以先在牆上點一次，mp3 就準備好了。
-   - ⚠️ Argus 快取有容量上限，舊的會被自動清掉。想加的歌點完就盡快抓下來，抓下來之後就跟 Argus 無關了。
+1. **mp3 來源伺服器上有這首**：腳本從自備的 mp3 來源抓檔，來源要提供清單與下載兩個端點（格式見 [add_song.py](tools/add_song.py) 開頭說明）。也可以不用腳本，自己把 mp3 放進資料夾。
 2. **LRCLIB 有同步歌詞**：熱門歌幾乎都有，冷門或很舊的中文歌比較可能沒有。
 
-接著跑 [tools/add_song.py](tools/add_song.py)。它會從 Argus 下載 mp3、到 LRCLIB 找同步歌詞，挑長度跟 mp3 最接近的那份：
+接著跑 [tools/add_song.py](tools/add_song.py)。它會從 mp3 來源下載 mp3、到 LRCLIB 找同步歌詞，挑長度跟 mp3 最接近的那份：
 
 ```bash
-echo "ARGUS_URL=http://<argus 主機>:<埠>" > tools/local.env   # 只放本機，不進版控
+echo "MP3_SOURCE_URL=http://<主機>:<埠>" > tools/local.env   # 只放本機，不進版控
 python -X utf8 tools/add_song.py "Queencard" --artist "(G)I-DLE" --track "Queencard"
-#   第一個參數       在 Argus 快取標題裡找的關鍵字（要只對到一首）
+#   第一個參數       在來源清單標題裡找的關鍵字（要只對到一首）
 #   --lrclib <id>    指定某份歌詞
 #   --offset <毫秒>  寫入 [offset:]（正值＝提早）
 #   --force          長度差超過門檻也照寫
@@ -78,7 +77,7 @@ python -X utf8 tools/add_song.py "Queencard" --artist "(G)I-DLE" --track "Queenc
 
 mp3 和 LRC 都不進版控，只存在開發機上。換電腦或檔案不見時，照下表重新抓回來（`--lrclib` 指定當初用的那份歌詞，結果才會一樣）：
 
-| 歌手 - 歌名 | Argus 關鍵字 | LRCLIB | offset | 備註 |
+| 歌手 - 歌名 | 來源關鍵字 | LRCLIB | offset | 備註 |
 |---|---|---|---|---|
 | (G)I-DLE - Queencard | `Queencard` | 6608612 | | LRCLIB 上有照 MV 版排的歌詞（MV 開頭有 9 秒劇情） |
 | A-Lin - 920 | `920 feat` | 9073630 | | |
@@ -90,13 +89,13 @@ mp3 和 LRC 都不進版控，只存在開發機上。換電腦或檔案不見�
 | 張震嶽 - 分手吧 | `分手吧` | 16689 | | |
 | 張震嶽 - 自由 | `張震嶽 - 自由` | 29760813 | | |
 | 桑田佳祐 - 明日晴れるかな | `明日晴れるかな` | 36091080 | | |
-| 蔡健雅 - 紅色高跟鞋 | `紅色高跟鞋` | 16205198 | | 快取裡另有一首「蔡健雅 - 紅色高跟鞋」，用的是標題剛好叫「紅色高跟鞋」那首 |
+| 蔡健雅 - 紅色高跟鞋 | `紅色高跟鞋` | 16205198 | | 來源裡另有一首「蔡健雅 - 紅色高跟鞋」，用的是標題剛好叫「紅色高跟鞋」那首 |
 | 鄧紫棋 - 光年之外 | `光年之外` | 11959707 | | |
 | 馬念先 & 9m88 - 你朝我的方向走來 | `你朝我的方向走來` | 8607204 | | MV 比歌詞長 23 秒，全是片尾劇情，歌詞部分每句誤差 < 0.5 秒；重抓要加 `--force` |
 
 小孩歌單（`--playlist 小孩`）：
 
-| 歌手 - 歌名 | Argus 關鍵字 | LRCLIB | offset | 備註 |
+| 歌手 - 歌名 | 來源關鍵字 | LRCLIB | offset | 備註 |
 |---|---|---|---|---|
 | Justin Bieber - Baby | `Justin Bieber - Baby` | 7820834 | | 五份候選長度都吻合，這份第一句時間跟 MV 最接近 |
 

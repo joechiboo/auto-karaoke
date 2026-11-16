@@ -1,10 +1,10 @@
-"""加一首歌：從 Argus 點唱機快取下載 mp3，從 LRCLIB 抓同步歌詞，寫進 assets/songs/。
+"""加一首歌：從自備的 mp3 來源伺服器下載 mp3，從 LRCLIB 抓同步歌詞，寫進 assets/songs/。
 
 用法：
-    set ARGUS_URL=http://<argus 主機>:<埠>      （或寫在 tools/local.env：ARGUS_URL=...）
+    set MP3_SOURCE_URL=http://<主機>:<埠>      （或寫在 tools/local.env：MP3_SOURCE_URL=...）
     python -X utf8 tools/add_song.py "Queencard" --artist "(G)I-DLE" --track "Queencard"
 
-    --keyword（第一個參數）：在 Argus 快取標題裡找的關鍵字
+    --keyword（第一個參數）：在來源清單標題裡找的關鍵字
     --artist / --track：查 LRCLIB 用的歌手與歌名，也是檔名「歌手 - 歌名」
     --lrclib <id>：指定用哪一份歌詞（看完候選清單後再跑一次）
     --offset <毫秒>：寫進 LRC 的 [offset:]，正值＝歌詞提早
@@ -16,6 +16,10 @@
   MV 版常比錄音室版多前奏或劇情，歌詞會整首偏掉；有些人會上傳照 MV 版排的歌詞，
   長度會剛好對上，那份就能直接用。
 - 長度吻合不保證每句都準：唱的時候再用播放畫面的 －／＋ 鈕微調。
+
+mp3 來源伺服器要提供兩個端點：
+    GET /api/music/cache          → {"tracks": [{"title": ..., "videoId": ...}, ...]}
+    GET /api/music/cache/<videoId> → mp3 音檔
 
 注意：LRCLIB 是外部網站，請求之間固定隔 2 秒，不要拿來大量爬。
 """
@@ -36,15 +40,15 @@ UA = {"User-Agent": "auto-karaoke/0.1 (personal POC)"}
 MAX_DIFF = 2.0
 
 
-def argus_url() -> str:
-    url = os.environ.get("ARGUS_URL")
+def source_url() -> str:
+    url = os.environ.get("MP3_SOURCE_URL")
     env = Path(__file__).with_name("local.env")
     if not url and env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ARGUS_URL="):
+            if line.startswith("MP3_SOURCE_URL="):
                 url = line.split("=", 1)[1].strip()
     if not url:
-        sys.exit("請設定 ARGUS_URL（環境變數或 tools/local.env）")
+        sys.exit("請設定 MP3_SOURCE_URL（環境變數或 tools/local.env）")
     return url.rstrip("/")
 
 
@@ -94,14 +98,14 @@ def main():
     ap.add_argument("--playlist")
     a = ap.parse_args()
 
-    base_url = argus_url()
+    base_url = source_url()
     cache = get_json(f"{base_url}/api/music/cache")["tracks"]
     hits = [c for c in cache if a.keyword.lower() in (c.get("title") or "").lower()]
     exact = [c for c in hits if (c.get("title") or "").strip().lower() == a.keyword.strip().lower()]
     if len(exact) == 1:  # 標題跟關鍵字一字不差的優先（例如快取裡同時有「紅色高跟鞋」和「蔡健雅 - 紅色高跟鞋」）
         hits = exact
     if not hits:
-        sys.exit(f"Argus 快取裡找不到「{a.keyword}」")
+        sys.exit(f"mp3 來源裡找不到「{a.keyword}」")
     if len(hits) > 1:
         print("找到多首，換更精確的關鍵字：")
         for c in hits:
@@ -110,7 +114,7 @@ def main():
     hit = hits[0]
     audio_url = f'{base_url}/api/music/cache/{hit["videoId"]}'
     dur, lead = probe(audio_url)
-    print(f'Argus：{hit["title"]}\n  長度 {dur:.1f}s，開頭空白 {lead:.2f}s')
+    print(f'來源：{hit["title"]}\n  長度 {dur:.1f}s，開頭空白 {lead:.2f}s')
 
     candidates = search_lrclib(a.artist, a.track)
     if not candidates:
